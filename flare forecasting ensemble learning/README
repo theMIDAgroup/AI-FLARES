@@ -1,0 +1,6 @@
+Ensemble learning for forecasting solar flares
+Reference:
+S. Guastavino, M. Piana and F. Benvenuto, Bad and Good Errors: Value-Weighted Skill Scores in Deep Ensemble Learning, IEEE Trans Neural Netw Learn Syst, pp. 1-10 (2022).
+
+Using the code
+Major softwares: Keras 2.4.3, Tensorflow 2.3.0, Python 2.7.15. The requirements.txt file lists all the packages necessary to run the notebooks and functions in this repository.
