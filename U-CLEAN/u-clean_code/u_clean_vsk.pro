@@ -1,23 +1,23 @@
 ;+
 ;
 ; NAME:
-;   uv_smooth_VSK
+;   u_clean_VSK
 ;
 ; PURPOSE:
-;   This code computes a VSK interpolant based on the usage of a first rought image reconstruction
+;   This code computes a VSK interpolant based on the usage of a first rought image reconstruction, 
+;   i.e. the clean component map
 ;
 ; CALLING SEQUENCE:
-;   uv_smooth_vsk, vis, usampl, N, method, Ulimit, threshold_PSI, ep, aux_data 
-;   
+;   u_clean_VSK, vis, usampl, N, Ulimit, ep, aux_data, imsize 
+;  
 ; INPUTS:
 ;   vis: the visibilities 
 ;   usampl: the evaluation data (i.e. the vector defining the grid)
 ;   N: number of grid data in one direction
-;   method: the method used to initialize the procedure (either back-projection or clean component map)
 ;   Ulimit: the range of the square cointaining the data in the uv-plane
-;   threshold_PSI: a treshold for the back-projection or clean component map
 ;   ep: the shape parameter for the RBF  
 ;   aux_data: aux file of the visibilities (mandatory for clean map)
+;   imsize: the image size
 ;
 ; OUTPUTS:
 ;   visnew: the visibility surfaces
@@ -27,7 +27,7 @@
 ; HISTORY: Dec 2021, Perracchione E., created
 ;
 
-function uv_smooth_vsk, vis, usampl, N, method, Ulimit, threshold_PSI, ep, aux_data 
+function u_clean_vsk, vis, clean_component_map, usampl, N, Ulimit, ep, aux_data, imsize 
 
 ;;;;;;;;;;;;;;;;; Store the data in matrices and vectors for interpolation ;;;;;;;;;;;;;;;;;
 
@@ -37,8 +37,8 @@ function uv_smooth_vsk, vis, usampl, N, method, Ulimit, threshold_PSI, ep, aux_d
   
 ;;;;;;;;;;;;;;;;; Define the evaluation points: a matrix (N^2 X 2) ;;;;;;;;;;;;;;;;;
 
-  grid_matrix = [[reform(transpose(replicate_array(usampl, N)),N^2,1)], $
-    [reform(replicate_array(usampl, N),N^2,1)]]
+  grid_matrix = [[reform(transpose(cmreplicate(usampl, N)),N^2,1)], $
+    [reform(cmreplicate(usampl, N),N^2,1)]]
      
 ;;;;;;;;;;;;;;;;; Define the regression parameter ;;;;;;;;;;;;;;;;; 
 ;;;;;;;;;;;;;;;;; It is non-zero only for RHESSI detectors 1 and 2 ;;;;;;;;;;;;;;;;; 
@@ -55,34 +55,37 @@ function uv_smooth_vsk, vis, usampl, N, method, Ulimit, threshold_PSI, ep, aux_d
       endif
   endif
 
-;;;;;;;;;;;;;;;;; Compute a first approximation of the image ;;;;;;;;;;;;;;;;; 
+;;;;;;;;;;;;;;;;; Define the first approximation of the image ;;;;;;;;;;;;;;;;; 
 
-   if (method eq 'BP') then begin
-       vis_bpmap, vis[wh], MAP=map, data_only = 0
-       dx = map.dy
-       dy = map.dx
-       map_coarse =   map.data 
-   endif else begin       
-      clean_im = vis_clean(vis[wh], clean_map = clean_map, $
-      clean_sources_map = clean_sources_map, pixel=px_1)
-      map_coarse =   clean_sources_map
-      dx = px_1[0]
-      dy = dx
-    endelse
-
-;;;;;;;;;;;;;;;;; Threshold the rought map ;;;;;;;;;;;;;;;;; 
-   N_m = sqrt(size(map_coarse,/N_elements))
-   tres = MAKE_ARRAY(N_m, N_m, /COMPLEX, VALUE = threshold_PSI*max(map_coarse))
-   map_coarse_tres =  (map_coarse)*(abs(map_coarse) ge tres)
-   if size(where(map_coarse_tres GT 0),/N_elements) EQ 1 then map_coarse_tres = map_coarse
-   
+  if imsize[0] LT 130L then begin
+        clean_component_map = make_map(clean_component_map.data,$
+          dx=1.,dy=1.)
+        newmap = rep_tag_value(clean_component_map, fltarr(imsize),'DATA')
+        newmap.dx = 1. & newmap.dy = 1.
+        clean_component_map = inter_map(clean_component_map, newmap, err=err)  
+  endif else begin
+        clean_component_map = make_map(clean_component_map.data,$
+          dx=1.,dy=1.)
+        newmap = rep_tag_value(clean_component_map, fltarr(imsize),'DATA')
+        newmap.dx = 1. & newmap.dy = 1.
+        clean_component_map = inter_map(clean_component_map, newmap, err=err)  
+  endelse
+  if (vis[0].type EQ 'stx_visibility') then begin
+        map_dummy = rot_map(make_map(clean_component_map.data),aux_data.ROLL_ANGLE,rcenter=[0.,0.])
+        map_coarse =   rotate(map_dummy.data,1)
+        px_1 = clean_component_map.dx
+        dx = px_1[0]
+        dy =  dx
+  endif
+  
 ;;;;;;;;;;;;;;;;; Compute the augmented features ;;;;;;;;;;;;;;;;; 
-   augemted_features = uv_smooth_augmented_feature(map_coarse_tres, Ulimit, grid_matrix, $
-    vis_matrix, ep, N_m, dx, dy, method, aux_data , vis[wh])
+   N_m = sqrt(size(map_coarse,/N_elements))
+   augemted_features = u_clean_augmented_feature(map_coarse, Ulimit, grid_matrix, $
+    vis_matrix, ep, N_m, dx, dy, aux_data , vis[wh])
   
 ;;;;;;;;;;;;;;;;; Interpolate the visibilities ;;;;;;;;;;;;;;;;;    
-   interp_vis = matern_kernel_interp(augemted_features.vis_matrix_VSK, augemted_features.grid_matrix_VSK, [[vis_real], [vis_imaginary]], ep, $
-     regparam = regparam, multi_set = multi_set)
+   interp_vis = matern_kernel_interp(augemted_features.vis_matrix_VSK, augemted_features.grid_matrix_VSK, $
+    [[vis_real], [vis_imaginary]], ep, regparam = regparam, multi_set = multi_set)
 
 ;;;;;;;;;;;;;;;;; Compute the complex grids ;;;;;;;;;;;;;;;;  
    reintz = reform(normalize_data(interp_vis[*,0], second_set = float(vis.obsvis))/$

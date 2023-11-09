@@ -1,25 +1,23 @@
 ;+
 ;
 ; NAME:
-;   uv_smooth_augmented_feature
+;   uv_clean_augmented_feature
 ;
 ; PURPOSE:
 ;   This code computes the added features 
 ;
 ; CALLING SEQUENCE:
-;   uv_smooth_augmented_feature, map_coarse_tres, Ulimit, grid_matrix, vis_matrix, ep,  $
+;   uv_clean_augmented_feature, map_coarse, Ulimit, grid_matrix, vis_matrix, ep,  $
 ;   N_m, dx, dy, method, aux_data, vis_wh
 ;   
 ; INPUTS:
-;   map_coarse_tres: the thresholded rought map
+;   map_coarse: the clean component map
 ;   Ulimit: the range of the square cointaining the data in the uv-plane
 ;   grid_matrix: the grid data 
 ;   vis_matrix: the visibilities
 ;   ep: the shape parameter for the RBF     
-;   N_m: size of map_coarse_tres
-;   dx, dy: pixel size of the map_coarse_tres
-;   method: the method used to initialize the procedure (either back-projection or clean component map),
-;     default to 'BP', otherwise 'CC'
+;   N_m: size of map_coarse
+;   dx, dy: pixel size of the map_coarse
 ;   aux_data: aux file of the visibilities (mandatory for clean map)
 ;   vis_wh: usefull for RHESSI and is related to smoothing parameter
 ;   
@@ -29,17 +27,17 @@
 ; HISTORY: Dec 2021, Perracchione E., created
 ;
 
-function uv_smooth_augmented_feature, map_coarse_tres, Ulimit, grid_matrix, vis_matrix, ep, $
-   N_m, dx, dy, method, aux_data, vis_wh
+function u_clean_augmented_feature, map_coarse, Ulimit, grid_matrix, vis_matrix, ep, $
+   N_m, dx, dy, aux_data, vis_wh
    
 ;;; Use the map vis_map2vis_matrix to have a first approximation of the visibility surfaces   
    N_tmp = 24 
-   grid_matrix_N_tmp = [[reform(transpose(replicate_array(-Ulimit+findgen(N_tmp)*(2*Ulimit/N_tmp), N_tmp)),N_tmp^2,1)],$
-     [reform(replicate_array(-Ulimit+findgen(N_tmp)*(2*Ulimit/N_tmp), N_tmp),N_tmp^2,1)]]
+  grid_matrix_N_tmp = [[reform(transpose(cmreplicate(-Ulimit+findgen(N_tmp)*(2*Ulimit/N_tmp), N_tmp)),N_tmp^2,1)],$
+   [reform(cmreplicate(-Ulimit+findgen(N_tmp)*(2*Ulimit/N_tmp), N_tmp),N_tmp^2,1)]]
    ; Compute the augmented feature for the data sites
    F = vis_map2vis_matrix([grid_matrix_N_tmp[*,0]], [grid_matrix_N_tmp[*,1]], $
     [N_m, N_m], [dx, dy])
-   grid_matrix_tmp_augmented = F # map_coarse_tres[*]
+   grid_matrix_tmp_augmented = F # map_coarse[*]
 
 ;;;;;;;;;;;;;;;;; Normalize data before interpolation ;;;;;;;;;;;;;;;;;
    grid_matrix_tmp_augmented_real = normalize_data(float(grid_matrix_tmp_augmented)) 

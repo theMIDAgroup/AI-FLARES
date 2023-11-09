@@ -1,39 +1,33 @@
 ;+
 ; NAME:
-;   uv_smooth
+;   u_clean
 ;
 ; PURPOSE:
-;   This code implements a new interpolation routine for uv-smooth:
+;   This code exploits the last convolution step of the CLEAN procedure
 ;   - utilizes RHESSI or STIX visibilities as input
-;   - replaces the unknown visibilities at non-sampled (u,v) points with a VSK interpolant
+;   - replaces the unknown visibilities at non-sampled (u,v) points with a VSK interpolant based on 
+;     the clean components map
 ;   - utilizes an iterative routine incorporating a positivity constraint on the image to provide
 ;     visibilities that taper gradually to zero outside the sampling domain.
 ;
 ; CALLING SEQUENCE:
-;   uv_smooth, vis, map
+;   u_clean, vis, map
 ;
 ; INPUTS:
 ;   vis:  input visibility structure in standard format
+;   clean_component_map: the map pf the clean components
 ;
 ; OUTPUTS:
 ;   map: image map in the structure format provided by the routine make_map.pro
 ;   
 ; KEYWORDS:
 ;   NOPLOT - default to 1 to not plot uv plane of available visibilities
-;   imsize: the uv_smooth map size, default to 128X128
-;   pixel: the uv_smooth map pixel size, default to [1,1]
-;   method: the method used to initialize the procedure (either back-projection or clean component map), 
-;     default to 'BP', otherwise 'CC'
-;   threshold_PSI: a treshold for the back-projection or clean component map, 
-;     default for 'BP' is 0.85, for CC is 0.
+;   imsize: the u_clean map size, default to 128X128
+;   pixel: the u_clean pixel size, default to [1,1]
 ;   ep: the shape parameter for the RBF  
 ;   flare_loc: location of the flare, default set to vis[0].xyoffset
-;   aux_data: aux file of the visibilities (mandatory for clean map)
+;   aux_data: aux file of the visibilities 
 ;   
-; RESTRICTIONS:
-;   - input visibilities must be sampled in the whole (u,v) plane (visibilities
-;     with only positive v values must be previuosly converted to their conjugate values)
-;
 ; MODIFICATION HISTORY:
 ;   Dec-2008 Written Anna M. Massone
 ;   Jul-2009, ras, added RECONSTRUCTED_MAP_VISIBILITIES as an output
@@ -42,16 +36,17 @@
 ;   16-Jul-2009, Kim.  Added uv_window arg. Reuse that window for vis sampling plot
 ;   17-Nov-2009, Anna, Kim. Removed remove_list arg and logic. Can now handle all 9 detectors.
 ;   26-Nov-2011, Kim. Call al_legend instead of legend (IDL V8 conflict)
-;   Dec-2021, Emma Perracchione. Added the VSK interpolation routine and adapted the code to STIX
-;
+;   Dec-2021, Perracchione E, Added the VSK interpolation routine and adapted the code to STIX
+;   May-2023, Perracchione E, Massa P., Camattari F. tested the code with real STIX data. 
+;   
 
-pro uv_smooth, vis, imsize=imsize, pixel=pixel, method=method, threshold_PSI=threshold_PSI, $
+pro u_clean, vis, clean_component_map, imsize=imsize, pixel=pixel, $
   ep = ep, flare_loc = flare_loc, aux_data = aux_data, map, $
   NOPLOT = NOPLOT, uv_window = uv_window, _extra =_extra
 
 ;;;;;;;;;;;;;;;;; Set default parameters (almost all inherited by RHESSI) ;;;;;;;;;;;;;;;;;
 
-  default, ep, 0.01
+  default, ep, 0.1
   default, noplot, 1
   default, uv_window, -1
   default, imsize, [128L, 128L]
@@ -62,28 +57,34 @@ pro uv_smooth, vis, imsize=imsize, pixel=pixel, method=method, threshold_PSI=thr
   endif else begin
     default, pixel, [1.,1.]   
   endelse
-  default, method, 'BP'
-  if method EQ 'BP' then begin
-   default, threshold_PSI, 0.85   
-  endif else begin
-   default, threshold_PSI, 0.
-  endelse
  
-;;;;;;;;;;;;;;;;; Set uv-smooth parameters (almost all inherited by RHESSI) ;;;;;;;;;;;;;;;;;
-     
+;;;;;;;;;;;;;;;;; Set u-clean parameters (almost all inherited by RHESSI) ;;;;;;;;;;;;;;;;;
+ 
+ if imsize[0]*pixel[0] LT 130d then begin  
   pixel_uv = 0.0005                                 ;;; pixel size in the (u,v)-plane
-  imsize_uv_smooth = 128L                           ;;; size of the output image
+  imsize_u_clean = 128L                             ;;; size of the output image
+ endif else begin
+   pixel_uv = 0.00025                                ;;; pixel size in the (u,v)-plane
+   imsize_u_clean = 256L                             ;;; size of the output image
+ endelse
+ 
   Nnew = 1920L                                      ;;; parameter for zero-padded image
-  Nmask = 15L                                        ;;; parameter for subsampling the zero-padded image
+  Nmask = 15L                                       ;;; parameter for subsampling the zero-padded image
   iterLand = 50                                     ;;; maximum number of Landweber iterations 
-  tau = 0.2                                         ;;; relaxation parameter for Landweber iteration
+  tau = 0.5                                         ;;; relaxation parameter for Landweber iteration
 
 ;;;;;;;;;;;;;;;;; Check if the visibilities are from RHESSI or STIX ;;;;;;;;;;;;;;;;;
 
   if (vis[0].type Eq 'stx_visibility') then begin
+    if imsize[0] LT 130L then begin
      ;;; Set parameters for STIX visibilities
      fov = 0.16 ;;; set the field of view
      N = 320L   ;;; set the image size (in the (u,v)-plane)
+    endif else begin
+     ;;; Set parameters for STIX visibilities
+     fov = 0.16 ;;; set the field of view
+     N = 640L   ;;; set the image size (in the (u,v)-plane)
+    endelse
   endif else begin    
     ;;; Set parameters for RHESSI visibilities
     detmin = min(vis.isc)  
@@ -98,8 +99,15 @@ pro uv_smooth, vis, imsize=imsize, pixel=pixel, method=method, threshold_PSI=thr
       N = 260L   ;;; set the image size (in the (u,v)-plane)
     endif
     if (detmin GE 2 ) then begin
-      fov = 0.16 ;;; set the field of view
-      N = 320L   ;;; set the image size (in the (u,v)-plane)
+      if imsize[0] LT 130L then begin
+        ;;; Set parameters for STIX visibilities
+        fov = 0.16 ;;; set the field of view
+        N = 320L   ;;; set the image size (in the (u,v)-plane)
+      endif else begin
+        ;;; Set parameters for STIX visibilities
+        fov = 0.16 ;;; set the field of view
+        N = 640L   ;;; set the image size (in the (u,v)-plane)
+    endelse
       endif
   endelse
 
@@ -136,16 +144,17 @@ pro uv_smooth, vis, imsize=imsize, pixel=pixel, method=method, threshold_PSI=thr
   ;;;;;;;;;;;;;;;;;; Interpolation with VSKs
   ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-  visnew = uv_smooth_vsk(vis, usampl, N, method, Ulimit, threshold_PSI, ep, aux_data)
+  visnew = u_clean_vsk(vis, clean_component_map, usampl, N, Ulimit, ep, aux_data, imsize)
 
   ;;;;;;;;;;;;;;;;; Do not allow function to extrapolate outside the disk  ;;;;;;;;;;;;;;;;;
-  
+    
   Rmax = max(sqrt(vis.u*vis.u+vis.v*vis.v))
   for i = 0L,N-1 do begin
     for j = 0L,N-1 do begin
       if(sqrt(usampl[i]*usampl[i]+vsampl[j]*vsampl[j]) GT Rmax ) then visnew[i,j] = complex(0.,0.)
     end
   end
+
 
   ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;;;;;;;;;;;;;;;;;; Zero-padding and subsampling
@@ -257,6 +266,7 @@ pro uv_smooth, vis, imsize=imsize, pixel=pixel, method=method, threshold_PSI=thr
     dx=deltax,dy=deltax,$
     time=time, $
     xunits='arcsec', yunits='arcsec')
+    
   
   ;;;;;;;;;;;;;;;;;;; If needed rebin the map ;;;;;;;;;;;;;;;;;
   

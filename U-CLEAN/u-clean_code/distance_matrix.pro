@@ -20,20 +20,22 @@
 ;   The function is taken by [G.E. Fasshauer, Meshfree Approximation Methods 
 ;   with Matlab, World Scientific, Singapore, 2007]
 ;
+; HISTORY: Dec 2021, Perracchione E., created
+;
 function distance_matrix, dsites, ctrs
   
-  ; Initialize
+;;;;;;;;;;;;;;;;; Initialize ;;;;;;;;;;;;;;;;;
   NN =  SIZE(dsites[*,0], /N_ELEMENTS)
   NN1 =  SIZE(ctrs[*,0], /N_ELEMENTS)
   s = SIZE(dsites[0,*], /N_ELEMENTS)
   DM = FLTARR(NN1, NN)
   
-  ; Compute the distance matrix
+  ;;;;;;;;;;;;;;;;; Compute the distance matrix ;;;;;;;;;;;;;;;;;
   for d=0L,s-1 do begin
     dr =  FLTARR(NN, NN1)
     cc =  FLTARR(NN, NN1)
-    dr = transpose(replicate1(dsites[*,d], NN1))
-    cc = replicate1(ctrs[*,d], NN)
+    dr = transpose(cmreplicate(dsites[*,d], NN1))
+    cc = cmreplicate(ctrs[*,d], NN)
     ;  dr, consisting of N identical columns (each containing
     ;      the d-th coordinate of the M data sites)
     ;  cc, consisting of M identical rows (each containing
@@ -42,6 +44,6 @@ function distance_matrix, dsites, ctrs
   end
   
   DM = sqrt(DM) 
-  return, transpose(DM)
+  return, DM
 
 end
